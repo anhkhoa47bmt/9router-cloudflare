@@ -1,5 +1,18 @@
 import { ensureDirs, DATA_FILE } from "./paths.js";
 
+async function tryCloudflareD1() {
+  try {
+    // Only resolves in the Cloudflare Workers runtime. Keeping this dynamic
+    // preserves the existing Node/Bun paths for local and Docker installs.
+    const { env } = await import("cloudflare:workers");
+    if (!env?.DB) return null;
+    const { createCloudflareD1Adapter } = await import("./adapters/cloudflareD1Adapter.js");
+    return createCloudflareD1Adapter(env.DB);
+  } catch {
+    return null;
+  }
+}
+
 // Use global to survive Next.js dev hot-reload (module state resets on reload)
 if (!global._dbAdapter) global._dbAdapter = { instance: null, initPromise: null, logged: false };
 const state = global._dbAdapter;
@@ -57,6 +70,17 @@ async function trySqlJs() {
 }
 
 async function initAdapter() {
+  // Cloudflare Workers has no persistent local filesystem. Prefer D1 before
+  // touching the file-backed SQLite paths used by Node/Bun.
+  const cloudflareAdapter = await tryCloudflareD1();
+  if (cloudflareAdapter) {
+    if (!state.logged) {
+      console.log("[DB] Driver: cloudflare-d1");
+      state.logged = true;
+    }
+    return cloudflareAdapter;
+  }
+
   ensureDirs();
   // Order per runtime:
   //   Bun:  bun:sqlite → sql.js
