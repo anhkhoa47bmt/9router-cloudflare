@@ -1,3 +1,4 @@
+// Trigger Cloudflare production build after branch switch
 // Cloudflare Workers deployment config
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
