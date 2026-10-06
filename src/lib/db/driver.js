@@ -2,7 +2,8 @@ async function tryCloudflareD1() {
   try {
     // Only resolves in the Cloudflare Workers runtime. Keeping this dynamic
     // preserves the existing Node/Bun paths for local and Docker installs.
-    const { env } = await import("cloudflare:workers");
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+    const { env } = await getCloudflareContext({ async: true });
     if (!env?.DB) return null;
     const { createCloudflareD1Adapter } = await import("./adapters/cloudflareD1Adapter.js");
     return createCloudflareD1Adapter(env.DB);
