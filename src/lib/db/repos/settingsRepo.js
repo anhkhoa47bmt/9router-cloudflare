@@ -68,7 +68,7 @@ const DEFAULT_SETTINGS = {
 
 async function readRaw() {
   const db = await getAdapter();
-  const row = db.get(`SELECT data FROM settings WHERE id = 1`);
+  const row = await db.get(`SELECT data FROM settings WHERE id = 1`);
   return row ? parseJson(row.data, {}) : {};
 }
 
@@ -109,6 +109,18 @@ export async function getSettings() {
 // Atomic read-merge-write inside transaction (prevents losing concurrent updates)
 export async function updateSettings(updates) {
   const db = await getAdapter();
+
+  if (db.driver === "cloudflare-d1") {
+    const row = await db.get(`SELECT data FROM settings WHERE id = 1`);
+    const current = row ? parseJson(row.data, {}) : {};
+    const next = { ...current, ...updates };
+    await db.run(
+      `INSERT INTO settings(id, data) VALUES(1, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data`,
+      [stringifyJson(next)],
+    );
+    return mergeWithDefaults(next);
+  }
+
   let next;
   db.transaction(function () {
     const row = db.get(`SELECT data FROM settings WHERE id = 1`);
