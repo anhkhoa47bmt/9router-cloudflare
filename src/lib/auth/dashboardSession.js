@@ -14,13 +14,6 @@ async function getRuntimeSecret() {
 
   if (!secret) {
     try {
-      const { env } = await import("cloudflare:workers");
-      secret = env?.JWT_SECRET;
-    } catch {}
-  }
-
-  if (!secret) {
-    try {
       const [{ default: fs }, { default: path }, { default: crypto }, { DATA_DIR }] = await Promise.all([
         import("node:fs"),
         import("node:path"),
@@ -106,13 +99,6 @@ export async function verifyDashboardPassword(password) {
   const storedHash = settings?.password;
   if (storedHash) return bcrypt.compare(password, storedHash);
 
-  let initialPassword = typeof process !== "undefined" ? process.env?.INITIAL_PASSWORD : undefined;
-  if (!initialPassword) {
-    try {
-      const { env } = await import("cloudflare:workers");
-      initialPassword = env?.INITIAL_PASSWORD;
-    } catch {}
-  }
-
+  const initialPassword = typeof process !== "undefined" ? process.env?.INITIAL_PASSWORD : undefined;
   return password === (initialPassword || DEFAULT_PASSWORD);
 }
