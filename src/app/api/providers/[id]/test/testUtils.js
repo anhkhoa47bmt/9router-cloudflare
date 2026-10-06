@@ -29,7 +29,12 @@ const OAUTH_TEST_CONFIG = {
     method: "POST",
     authHeader: "Authorization",
     authPrefix: "Bearer ",
-    extraHeaders: { "Content-Type": "application/json", "originator": "codex_cli_rs", "User-Agent": `codex_cli_rs/${CODEX_CLI_VERSION}` },
+    extraHeaders: {
+      "Content-Type": "application/json",
+      "originator": "codex_cli_rs",
+      "User-Agent": `codex_cli_rs/${CODEX_CLI_VERSION}`,
+      "version": CODEX_CLI_VERSION,
+    },
     // Minimal invalid body — triggers fast 400 without consuming quota
     body: JSON.stringify({ model: "gpt-5.3-codex", input: [], stream: false, store: false }),
     // 400 (bad request) means auth succeeded; only 401/403 means token is bad
@@ -418,6 +423,15 @@ async function testOAuthConnection(connection, effectiveProxy = null) {
     const headers = config.noAuth
       ? { ...config.extraHeaders }
       : { [config.authHeader]: `${config.authPrefix}${accessToken}`, ...config.extraHeaders };
+
+    if (connection.provider === "codex") {
+      const accountId =
+        connection.providerSpecificData?.workspaceId ||
+        connection.providerSpecificData?.chatgptAccountId ||
+        connection.providerSpecificData?.accountId;
+      if (accountId) headers["ChatGPT-Account-ID"] = accountId;
+    }
+
     const fetchOpts = { method: config.method, headers };
     if (config.body) fetchOpts.body = config.body;
     const res = await fetchWithConnectionProxy(testUrl, fetchOpts, effectiveProxy);
@@ -442,6 +456,15 @@ async function testOAuthConnection(connection, effectiveProxy = null) {
         const retryHeaders = config.noAuth
           ? { ...config.extraHeaders }
           : { [config.authHeader]: `${config.authPrefix}${tokens.accessToken}`, ...config.extraHeaders };
+
+        if (connection.provider === "codex") {
+          const accountId =
+            connection.providerSpecificData?.workspaceId ||
+            connection.providerSpecificData?.chatgptAccountId ||
+            connection.providerSpecificData?.accountId;
+          if (accountId) retryHeaders["ChatGPT-Account-ID"] = accountId;
+        }
+
         const retryOpts = { method: config.method, headers: retryHeaders };
         if (config.body) retryOpts.body = config.body;
         const retryRes = await fetchWithConnectionProxy(retryUrl, retryOpts, effectiveProxy);
