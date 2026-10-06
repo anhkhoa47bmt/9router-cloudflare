@@ -1,66 +1,119 @@
-import { machineIdSync } from 'node-machine-id';
-import fs from 'node:fs';
-import path from 'node:path';
-import crypto from 'node:crypto';
-import { DATA_DIR } from '@/lib/dataDir';
+import crypto from "node:crypto";
 
-const MACHINE_ID_FILE = path.join(DATA_DIR, 'machine-id');
-const AUTH_DIR = path.join(DATA_DIR, 'auth');
-const CLI_SECRET_FILE = path.join(AUTH_DIR, 'cli-secret');
-const CLI_AUTH_SALT = '9r-cli-auth';
+const CLI_AUTH_SALT = "9r-cli-auth";
 let cachedRawId = null;
 let cachedCliSecret = null;
 
-// Persist raw machine ID to file → guarantees CLI/server/middleware see same value
-// even when machineIdSync fails or returns inconsistent values across runtimes.
-function loadRawMachineId() {
-  if (cachedRawId) return cachedRawId;
+async function getWorkerSeed() {
   try {
-    cachedRawId = fs.readFileSync(MACHINE_ID_FILE, 'utf8').trim();
+    const { env } = await import("cloudflare:workers");
+    return env?.MACHINE_ID_SEED || env?.JWT_SECRET || "";
+  } catch {
+    return "";
+  }
+}
+
+async function loadRawMachineId() {
+  if (cachedRawId) return cachedRawId;
+
+  const workerSeed = await getWorkerSeed();
+  if (workerSeed) {
+    cachedRawId = crypto.createHash("sha256").update(String(workerSeed)).digest("hex");
+    return cachedRawId;
+  }
+
+  const [{ machineIdSync }, fsMod, pathMod, { DATA_DIR }] = await Promise.all([
+    import("node-machine-id"),
+    import("node:fs"),
+    import("node:path"),
+    import("@/lib/dataDir"),
+  ]);
+
+  const fs = fsMod.default || fsMod;
+  const path = pathMod.default || pathMod;
+  const machineIdFile = path.join(DATA_DIR, "machine-id");
+
+  try {
+    cachedRawId = fs.readFileSync(machineIdFile, "utf8").trim();
     if (cachedRawId) return cachedRawId;
   } catch {}
+
   try {
     cachedRawId = machineIdSync();
   } catch {
     cachedRawId = crypto.randomUUID();
   }
+
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(MACHINE_ID_FILE, cachedRawId, { mode: 0o600 });
+    fs.writeFileSync(machineIdFile, cachedRawId, { mode: 0o600 });
   } catch {}
+
   return cachedRawId;
 }
 
-// Random secret persisted on first run → unpredictable CLI token even when machineId leaks.
-function loadCliSecret() {
+async function loadCliSecret() {
   if (cachedCliSecret) return cachedCliSecret;
+
+  const workerSeed = await getWorkerSeed();
+  if (workerSeed) {
+    cachedCliSecret = crypto
+      .createHash("sha256")
+      .update(String(workerSeed) + ":cli-secret")
+      .digest("hex");
+    return cachedCliSecret;
+  }
+
+  const [fsMod, pathMod, { DATA_DIR }] = await Promise.all([
+    import("node:fs"),
+    import("node:path"),
+    import("@/lib/dataDir"),
+  ]);
+  const fs = fsMod.default || fsMod;
+  const path = pathMod.default || pathMod;
+  const authDir = path.join(DATA_DIR, "auth");
+  const cliSecretFile = path.join(authDir, "cli-secret");
+
   try {
-    cachedCliSecret = fs.readFileSync(CLI_SECRET_FILE, 'utf8').trim();
+    cachedCliSecret = fs.readFileSync(cliSecretFile, "utf8").trim();
     if (cachedCliSecret) return cachedCliSecret;
   } catch {}
-  cachedCliSecret = crypto.randomBytes(32).toString('hex');
+
+  cachedCliSecret = crypto.randomBytes(32).toString("hex");
   try {
-    fs.mkdirSync(AUTH_DIR, { recursive: true });
-    fs.writeFileSync(CLI_SECRET_FILE, cachedCliSecret, { mode: 0o600 });
+    fs.mkdirSync(authDir, { recursive: true });
+    fs.writeFileSync(cliSecretFile, cachedCliSecret, { mode: 0o600 });
   } catch {}
+
   return cachedCliSecret;
 }
 
+async function getRuntimeSalt() {
+  let value = typeof process !== "undefined" ? process.env?.MACHINE_ID_SALT : undefined;
+  if (!value) {
+    try {
+      const { env } = await import("cloudflare:workers");
+      value = env?.MACHINE_ID_SALT;
+    } catch {}
+  }
+  return value || "endpoint-proxy-salt";
+}
+
 export async function getConsistentMachineId(salt = null) {
-  const saltValue = salt || process.env.MACHINE_ID_SALT || 'endpoint-proxy-salt';
-  const raw = loadRawMachineId();
-  const extra = saltValue === CLI_AUTH_SALT ? loadCliSecret() : '';
-  return crypto.createHash('sha256').update(raw + saltValue + extra).digest('hex').substring(0, 16);
+  const saltValue = salt || await getRuntimeSalt();
+  const raw = await loadRawMachineId();
+  const extra = saltValue === CLI_AUTH_SALT ? await loadCliSecret() : "";
+  return crypto
+    .createHash("sha256")
+    .update(raw + saltValue + extra)
+    .digest("hex")
+    .substring(0, 16);
 }
 
 export async function getRawMachineId() {
-  return loadRawMachineId();
+  return await loadRawMachineId();
 }
 
-/**
- * Check if we're running in browser or server environment
- * @returns {boolean} True if in browser, false if in server
- */
 export function isBrowser() {
-  return typeof window !== 'undefined';
+  return typeof window !== "undefined";
 }
