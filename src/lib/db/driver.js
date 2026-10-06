@@ -72,6 +72,8 @@ async function initAdapter() {
   // touching the file-backed SQLite paths used by Node/Bun.
   const cloudflareAdapter = await tryCloudflareD1();
   if (cloudflareAdapter) {
+    const { ensureCloudflareSchema } = await import("./cloudflareBootstrap.js");
+    await ensureCloudflareSchema(cloudflareAdapter);
     if (!state.logged) {
       console.log("[DB] Driver: cloudflare-d1");
       state.logged = true;
