@@ -5,12 +5,8 @@ let cachedRawId = null;
 let cachedCliSecret = null;
 
 async function getWorkerSeed() {
-  try {
-    const { env } = await import("cloudflare:workers");
-    return env?.MACHINE_ID_SEED || env?.JWT_SECRET || "";
-  } catch {
-    return "";
-  }
+  if (typeof process === "undefined") return "";
+  return process.env?.MACHINE_ID_SEED || process.env?.JWT_SECRET || "";
 }
 
 async function loadRawMachineId() {
@@ -89,13 +85,7 @@ async function loadCliSecret() {
 }
 
 async function getRuntimeSalt() {
-  let value = typeof process !== "undefined" ? process.env?.MACHINE_ID_SALT : undefined;
-  if (!value) {
-    try {
-      const { env } = await import("cloudflare:workers");
-      value = env?.MACHINE_ID_SALT;
-    } catch {}
-  }
+  const value = typeof process !== "undefined" ? process.env?.MACHINE_ID_SALT : undefined;
   return value || "endpoint-proxy-salt";
 }
 
