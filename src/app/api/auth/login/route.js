@@ -12,14 +12,7 @@ const RESET_HINT = "Forgot password? Reset to default via 9Router CLI → Settin
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 
 async function getInitialPassword() {
-  let value = typeof process !== "undefined" ? process.env?.INITIAL_PASSWORD : undefined;
-  if (!value) {
-    try {
-      const { env } = await import("cloudflare:workers");
-      value = env?.INITIAL_PASSWORD;
-    } catch {}
-  }
-  return value || "";
+  return (typeof process !== "undefined" ? process.env?.INITIAL_PASSWORD : "") || "";
 }
 
 
