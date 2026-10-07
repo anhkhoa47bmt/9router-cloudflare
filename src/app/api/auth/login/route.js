@@ -11,6 +11,11 @@ import { isLocalRequest } from "@/dashboardGuard";
 const RESET_HINT = "Forgot password? Reset to default via 9Router CLI → Settings → Reset Password to Default.";
 const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 
+async function getInitialPassword() {
+  return (typeof process !== "undefined" ? process.env?.INITIAL_PASSWORD : "") || "";
+}
+
+
 function isTunnelRequest(request, settings) {
   const host = (request.headers.get("host") || "").split(":")[0].toLowerCase();
   const tunnelHost = settings.tunnelUrl ? new URL(settings.tunnelUrl).hostname.toLowerCase() : "";
@@ -50,13 +55,13 @@ export async function POST(request) {
       }
     }
 
+    const configuredInitialPassword = await getInitialPassword();
+
     let isValid = false;
     if (storedHash) {
       isValid = await bcrypt.compare(password, storedHash);
     } else {
-      // Use env var or default
-      const initialPassword = process.env.INITIAL_PASSWORD || "123456";
-      isValid = password === initialPassword;
+      isValid = password === (configuredInitialPassword || "123456");
     }
 
     if (isValid) {
@@ -65,7 +70,7 @@ export async function POST(request) {
       // Default password still in use on a remote client → force a password
       // change before the dashboard is exposed remotely (keeps local UX intact).
       const mustChangePassword =
-        !storedHash && !process.env.INITIAL_PASSWORD && !isLocalRequest(request);
+        !storedHash && !configuredInitialPassword && !isLocalRequest(request);
 
       if (mustChangePassword) {
         // Do NOT issue a session token: a fresh install's default password is

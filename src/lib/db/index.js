@@ -72,23 +72,45 @@ export async function exportDb() {
   const db = await getAdapter();
   const { exportSettings } = await import("./repos/settingsRepo.js");
 
+  const [
+    providerConnectionRows,
+    providerNodeRows,
+    proxyPoolRows,
+    apiKeyRows,
+    comboRows,
+    aliasRows,
+    customModelRows,
+    mitmRows,
+    pricingRows,
+  ] = await Promise.all([
+    db.all(`SELECT * FROM providerConnections`),
+    db.all(`SELECT * FROM providerNodes`),
+    db.all(`SELECT * FROM proxyPools`),
+    db.all(`SELECT * FROM apiKeys`),
+    db.all(`SELECT * FROM combos`),
+    db.all(`SELECT key, value FROM kv WHERE scope = 'modelAliases'`),
+    db.all(`SELECT key, value FROM kv WHERE scope = 'customModels'`),
+    db.all(`SELECT key, value FROM kv WHERE scope = 'mitmAlias'`),
+    db.all(`SELECT key, value FROM kv WHERE scope = 'pricing'`),
+  ]);
+
   const out = {
     settings: await exportSettings(),
-    providerConnections: db.all(`SELECT * FROM providerConnections`).map((r) => ({ ...parseJson(r.data, {}), id: r.id, provider: r.provider, authType: r.authType, name: r.name, email: r.email, priority: r.priority, isActive: r.isActive === 1, createdAt: r.createdAt, updatedAt: r.updatedAt })),
-    providerNodes: db.all(`SELECT * FROM providerNodes`).map((r) => ({ ...parseJson(r.data, {}), id: r.id, type: r.type, name: r.name, createdAt: r.createdAt, updatedAt: r.updatedAt })),
-    proxyPools: db.all(`SELECT * FROM proxyPools`).map((r) => ({ ...parseJson(r.data, {}), id: r.id, isActive: r.isActive === 1, testStatus: r.testStatus, createdAt: r.createdAt, updatedAt: r.updatedAt })),
-    apiKeys: db.all(`SELECT * FROM apiKeys`).map((r) => ({ id: r.id, key: r.key, name: r.name, machineId: r.machineId, isActive: r.isActive === 1, createdAt: r.createdAt })),
-    combos: db.all(`SELECT * FROM combos`).map((r) => ({ id: r.id, name: r.name, kind: r.kind, models: parseJson(r.models, []), createdAt: r.createdAt, updatedAt: r.updatedAt })),
+    providerConnections: providerConnectionRows.map((r) => ({ ...parseJson(r.data, {}), id: r.id, provider: r.provider, authType: r.authType, name: r.name, email: r.email, priority: r.priority, isActive: r.isActive === 1 || r.isActive === true, createdAt: r.createdAt, updatedAt: r.updatedAt })),
+    providerNodes: providerNodeRows.map((r) => ({ ...parseJson(r.data, {}), id: r.id, type: r.type, name: r.name, createdAt: r.createdAt, updatedAt: r.updatedAt })),
+    proxyPools: proxyPoolRows.map((r) => ({ ...parseJson(r.data, {}), id: r.id, isActive: r.isActive === 1 || r.isActive === true, testStatus: r.testStatus, createdAt: r.createdAt, updatedAt: r.updatedAt })),
+    apiKeys: apiKeyRows.map((r) => ({ id: r.id, key: r.key, name: r.name, machineId: r.machineId, isActive: r.isActive === 1 || r.isActive === true, createdAt: r.createdAt })),
+    combos: comboRows.map((r) => ({ id: r.id, name: r.name, kind: r.kind, models: parseJson(r.models, []), createdAt: r.createdAt, updatedAt: r.updatedAt })),
     modelAliases: {},
     customModels: [],
     mitmAlias: {},
     pricing: {},
   };
 
-  for (const r of db.all(`SELECT key, value FROM kv WHERE scope = 'modelAliases'`)) out.modelAliases[r.key] = parseJson(r.value);
-  for (const r of db.all(`SELECT key, value FROM kv WHERE scope = 'customModels'`)) out.customModels.push(parseJson(r.value));
-  for (const r of db.all(`SELECT key, value FROM kv WHERE scope = 'mitmAlias'`)) out.mitmAlias[r.key] = parseJson(r.value);
-  for (const r of db.all(`SELECT key, value FROM kv WHERE scope = 'pricing'`)) out.pricing[r.key] = parseJson(r.value);
+  for (const r of aliasRows) out.modelAliases[r.key] = parseJson(r.value);
+  for (const r of customModelRows) out.customModels.push(parseJson(r.value));
+  for (const r of mitmRows) out.mitmAlias[r.key] = parseJson(r.value);
+  for (const r of pricingRows) out.pricing[r.key] = parseJson(r.value);
 
   return out;
 }
@@ -98,6 +120,69 @@ export async function importDb(payload) {
     throw new Error("Invalid database payload");
   }
   const db = await getAdapter();
+
+  if (db.driver === "cloudflare-d1") {
+    await db.run(`DELETE FROM settings`);
+    await db.run(`DELETE FROM providerConnections`);
+    await db.run(`DELETE FROM providerNodes`);
+    await db.run(`DELETE FROM proxyPools`);
+    await db.run(`DELETE FROM apiKeys`);
+    await db.run(`DELETE FROM combos`);
+    await db.run(`DELETE FROM kv WHERE scope IN ('modelAliases', 'customModels', 'mitmAlias', 'pricing')`);
+
+    if (payload.settings) {
+      await db.run(`INSERT INTO settings(id, data) VALUES(1, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data`, [stringifyJson(payload.settings)]);
+    }
+
+    for (const connection of payload.providerConnections || []) {
+      const { id, provider, authType, name, email, priority, isActive, createdAt, updatedAt, ...rest } = connection;
+      await db.run(
+        `INSERT OR REPLACE INTO providerConnections(id, provider, authType, name, email, priority, isActive, data, createdAt, updatedAt) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, provider, authType || "oauth", name || null, email || null, priority || null, isActive === false ? 0 : 1, stringifyJson(rest), createdAt || new Date().toISOString(), updatedAt || new Date().toISOString()]
+      );
+    }
+    for (const node of payload.providerNodes || []) {
+      const { id, type, name, createdAt, updatedAt, ...rest } = node;
+      await db.run(
+        `INSERT OR REPLACE INTO providerNodes(id, type, name, data, createdAt, updatedAt) VALUES(?, ?, ?, ?, ?, ?)`,
+        [id, type || null, name || null, stringifyJson(rest), createdAt || new Date().toISOString(), updatedAt || new Date().toISOString()]
+      );
+    }
+    for (const pool of payload.proxyPools || []) {
+      const { id, isActive, testStatus, createdAt, updatedAt, ...rest } = pool;
+      await db.run(
+        `INSERT OR REPLACE INTO proxyPools(id, isActive, testStatus, data, createdAt, updatedAt) VALUES(?, ?, ?, ?, ?, ?)`,
+        [id, isActive === false ? 0 : 1, testStatus || "unknown", stringifyJson(rest), createdAt || new Date().toISOString(), updatedAt || new Date().toISOString()]
+      );
+    }
+    for (const key of payload.apiKeys || []) {
+      await db.run(
+        `INSERT OR REPLACE INTO apiKeys(id, key, name, machineId, isActive, createdAt) VALUES(?, ?, ?, ?, ?, ?)`,
+        [key.id, key.key, key.name || null, key.machineId || null, key.isActive === false ? 0 : 1, key.createdAt || new Date().toISOString()]
+      );
+    }
+    for (const combo of payload.combos || []) {
+      await db.run(
+        `INSERT OR REPLACE INTO combos(id, name, kind, models, createdAt, updatedAt) VALUES(?, ?, ?, ?, ?, ?)`,
+        [combo.id, combo.name, combo.kind || null, stringifyJson(combo.models || []), combo.createdAt || new Date().toISOString(), combo.updatedAt || new Date().toISOString()]
+      );
+    }
+    for (const [alias, model] of Object.entries(payload.modelAliases || {})) {
+      await db.run(`INSERT OR REPLACE INTO kv(scope, key, value) VALUES('modelAliases', ?, ?)`, [alias, stringifyJson(model)]);
+    }
+    for (const model of payload.customModels || []) {
+      const key = `${model.providerAlias}|${model.id}|${model.type || "llm"}`;
+      await db.run(`INSERT OR REPLACE INTO kv(scope, key, value) VALUES('customModels', ?, ?)`, [key, stringifyJson(model)]);
+    }
+    for (const [tool, mappings] of Object.entries(payload.mitmAlias || {})) {
+      await db.run(`INSERT OR REPLACE INTO kv(scope, key, value) VALUES('mitmAlias', ?, ?)`, [tool, stringifyJson(mappings || {})]);
+    }
+    for (const [provider, models] of Object.entries(payload.pricing || {})) {
+      await db.run(`INSERT OR REPLACE INTO kv(scope, key, value) VALUES('pricing', ?, ?)`, [provider, stringifyJson(models || {})]);
+    }
+
+    return await exportDb();
+  }
 
   db.transaction(() => {
     // Wipe all tables (keep _meta)

@@ -1,0 +1,26 @@
+// Trigger Cloudflare production build after branch switch
+// Cloudflare Workers deployment config
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "main": ".open-next/worker.js",
+  "name": "9router-cloudflare",
+  "compatibility_date": "2026-10-05",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "9router-cloudflare"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "9router-db",
+      "database_id": "a6419d3b-0ca5-4cb4-aa4b-cd5116b34710"
+    }
+  ]
+}

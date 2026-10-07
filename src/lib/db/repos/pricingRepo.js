@@ -59,20 +59,37 @@ export async function getPricingForModel(provider, model) {
 // Atomic merge inside transaction (per-provider read-modify-write)
 export async function updatePricing(pricingData) {
   const db = await getAdapter();
-  db.transaction(() => {
+
+  if (db.driver === "cloudflare-d1") {
     for (const [provider, models] of Object.entries(pricingData)) {
-      const row = db.get(`SELECT value FROM kv WHERE scope = 'pricing' AND key = ?`, [provider]);
+      const row = await db.get(`SELECT value FROM kv WHERE scope = 'pricing' AND key = ?`, [provider]);
       const current = row ? (parseJson(row.value, {}) || {}) : {};
       const merged = { ...current };
       for (const [model, pricing] of Object.entries(models)) {
         merged[model] = pricing;
       }
-      db.run(
+      await db.run(
         `INSERT INTO kv(scope, key, value) VALUES('pricing', ?, ?) ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value`,
         [provider, stringifyJson(merged)]
       );
     }
-  });
+  } else {
+    db.transaction(() => {
+      for (const [provider, models] of Object.entries(pricingData)) {
+        const row = db.get(`SELECT value FROM kv WHERE scope = 'pricing' AND key = ?`, [provider]);
+        const current = row ? (parseJson(row.value, {}) || {}) : {};
+        const merged = { ...current };
+        for (const [model, pricing] of Object.entries(models)) {
+          merged[model] = pricing;
+        }
+        db.run(
+          `INSERT INTO kv(scope, key, value) VALUES('pricing', ?, ?) ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value`,
+          [provider, stringifyJson(merged)]
+        );
+      }
+    });
+  }
+
   invalidate();
   return await getUserPricing();
 }
@@ -80,23 +97,43 @@ export async function updatePricing(pricingData) {
 export async function resetPricing(provider, model) {
   if (!provider) return await getUserPricing();
   const db = await getAdapter();
-  db.transaction(() => {
+
+  if (db.driver === "cloudflare-d1") {
     if (!model) {
-      db.run(`DELETE FROM kv WHERE scope = 'pricing' AND key = ?`, [provider]);
-      return;
-    }
-    const row = db.get(`SELECT value FROM kv WHERE scope = 'pricing' AND key = ?`, [provider]);
-    const current = row ? (parseJson(row.value, {}) || {}) : {};
-    delete current[model];
-    if (Object.keys(current).length === 0) {
-      db.run(`DELETE FROM kv WHERE scope = 'pricing' AND key = ?`, [provider]);
+      await db.run(`DELETE FROM kv WHERE scope = 'pricing' AND key = ?`, [provider]);
     } else {
-      db.run(
-        `INSERT INTO kv(scope, key, value) VALUES('pricing', ?, ?) ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value`,
-        [provider, stringifyJson(current)]
-      );
+      const row = await db.get(`SELECT value FROM kv WHERE scope = 'pricing' AND key = ?`, [provider]);
+      const current = row ? (parseJson(row.value, {}) || {}) : {};
+      delete current[model];
+      if (Object.keys(current).length === 0) {
+        await db.run(`DELETE FROM kv WHERE scope = 'pricing' AND key = ?`, [provider]);
+      } else {
+        await db.run(
+          `INSERT INTO kv(scope, key, value) VALUES('pricing', ?, ?) ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value`,
+          [provider, stringifyJson(current)]
+        );
+      }
     }
-  });
+  } else {
+    db.transaction(() => {
+      if (!model) {
+        db.run(`DELETE FROM kv WHERE scope = 'pricing' AND key = ?`, [provider]);
+        return;
+      }
+      const row = db.get(`SELECT value FROM kv WHERE scope = 'pricing' AND key = ?`, [provider]);
+      const current = row ? (parseJson(row.value, {}) || {}) : {};
+      delete current[model];
+      if (Object.keys(current).length === 0) {
+        db.run(`DELETE FROM kv WHERE scope = 'pricing' AND key = ?`, [provider]);
+      } else {
+        db.run(
+          `INSERT INTO kv(scope, key, value) VALUES('pricing', ?, ?) ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value`,
+          [provider, stringifyJson(current)]
+        );
+      }
+    });
+  }
+
   invalidate();
   return await getUserPricing();
 }
