@@ -31,7 +31,9 @@ import { stripModelContextMarker } from "open-sse/utils/modelMarkers.js";
  * Supports: OpenAI, Claude, Gemini, OpenAI Responses API formats
  * Format detection and translation handled by translator
  */
-export async function handleChat(request, clientRawRequest = null) {
+// authenticatedDashboard is a server-only option, set after verifying the
+// dashboard session. Never read it from the request body or headers.
+export async function handleChat(request, clientRawRequest = null, { authenticatedDashboard = false } = {}) {
   let body;
   try {
     body = await request.json();
@@ -69,7 +71,7 @@ export async function handleChat(request, clientRawRequest = null) {
 
   // Enforce API key if enabled in settings
   const settings = await getSettings();
-  if (settings.requireApiKey) {
+  if (settings.requireApiKey && authenticatedDashboard !== true) {
     if (!apiKey) {
       log.warn("AUTH", "Missing API key (requireApiKey=true)");
       return errorResponse(HTTP_STATUS.UNAUTHORIZED, "Missing API key");
