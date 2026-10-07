@@ -32,6 +32,7 @@ const OAUTH_TEST_CONFIG = {
     extraHeaders: {
       "Content-Type": "application/json",
       "originator": "codex_cli_rs",
+      "OpenAI-Beta": "responses=experimental",
       "User-Agent": `codex_cli_rs/${CODEX_CLI_VERSION}`,
       "version": CODEX_CLI_VERSION,
     },

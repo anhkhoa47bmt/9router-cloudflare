@@ -41,6 +41,7 @@ export default {
     forceStream: true,
     cliVersion: CODEX_CLI_VERSION,
     headers: {
+      "OpenAI-Beta": "responses=experimental",
       originator: "codex_cli_rs",
       "User-Agent": `codex_cli_rs/${CODEX_CLI_VERSION}`,
       version: CODEX_CLI_VERSION,
