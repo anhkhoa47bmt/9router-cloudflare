@@ -10,7 +10,17 @@ export async function POST(request) {
 
   // Cookie authentication requires CSRF protection. Basic Chat sends same-origin
   // browser POSTs; do not trust forwarded host headers or grant cross-origin CORS.
-  if (request.headers.get("origin") !== new URL(request.url).origin) {
+  // OpenNext/Next may reconstruct request.url with an internal hostname.
+  // Browser Origin must match the incoming Host, not that internal URL.
+  const origin = request.headers.get("origin");
+  let sameOrigin = false;
+  try {
+    const parsed = new URL(origin);
+    sameOrigin = (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+      parsed.origin === origin &&
+      parsed.host === (request.headers.get("host") || new URL(request.url).host);
+  } catch {}
+  if (!sameOrigin) {
     return Response.json({ error: "Same-origin request required" }, { status: 403 });
   }
 

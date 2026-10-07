@@ -51,4 +51,18 @@ describe("Dashboard Basic Chat authentication", () => {
     expect(res.headers.get("content-type")).toBe("text/event-stream");
     expect(await res.text()).toBe("data: test\n\n");
   });
+
+  it("uses the incoming Host when Next reconstructs an internal URL", async () => {
+    const req = request({ token: "valid-session", origin: "https://public.example" });
+    req.headers.set("host", "public.example");
+    expect((await POST(req)).status).toBe(200);
+  });
+
+  it("does not trust forwarded-host to authorize an Origin", async () => {
+    const req = request({ token: "valid-session", origin: "https://attacker.example" });
+    req.headers.set("host", "router.example");
+    req.headers.set("x-forwarded-host", "attacker.example");
+    expect((await POST(req)).status).toBe(403);
+    expect(mocks.chat).not.toHaveBeenCalled();
+  });
 });
